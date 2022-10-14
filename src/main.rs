@@ -40,7 +40,7 @@ fn main() -> std::io::Result<()>{
             thread::spawn(move ||{
                 for _ in 0..args.files_per_thread {
                     let tar_gz = File::create(gen_filepath(path.clone())).unwrap();
-                    let enc = GzEncoder::new(tar_gz, Compression::best());
+                    let enc = GzEncoder::new(tar_gz, Compression::fast());
                     let mut archive = tar::Builder::new(enc);
                     for _ in 0..args.count {
                         let testdata = RandomTestData::new();
