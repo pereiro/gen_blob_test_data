@@ -4,7 +4,7 @@ use std::thread;
 use rand::Rng;
 use serde::{Serialize};
 use flate2::Compression;
-use flate2::write::{ZlibEncoder,GzEncoder};
+use flate2::write::{ZlibEncoder};
 use tar::Header;
 use clap::Parser;
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
