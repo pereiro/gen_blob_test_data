@@ -1,11 +1,10 @@
-use std::fmt::format;
 use std::fs::File;
 use std::path::Path;
 use std::thread;
 use rand::Rng;
 use serde::{Serialize};
 use flate2::Compression;
-use flate2::write::GzEncoder;
+use flate2::write::{ZlibEncoder,GzEncoder};
 use tar::Header;
 use clap::Parser;
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
@@ -25,7 +24,11 @@ struct Args {
     threads_per_path: usize,
     ///Files per thread
     #[arg(short, long)]
-    files_per_thread: usize
+    files_per_thread: usize,
+    ///GZ/Zlib compression, 2=best,1=fast,0=none
+    #[arg(short, long)]
+    gz_compression: u8
+
 }
 
 static GLOBAL_THREAD_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
@@ -34,15 +37,20 @@ fn main() -> std::io::Result<()>{
     let args:Args = Args::parse();
 
     for path in args.paths.clone(){
-        for i in 0..args.threads_per_path{
+        for _ in 0..args.threads_per_path{
             let path = path.clone();
             GLOBAL_THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
             thread::spawn(move ||{
                 for _ in 0..args.files_per_thread {
                     let tar_gz = File::create(gen_filepath(path.clone())).unwrap();
-                    //let enc = GzEncoder::new(tar_gz, Compression::none());
-                    //let mut archive = tar::Builder::new(enc);
-                    let mut archive = tar::Builder::new(tar_gz);
+                    let compression: Compression;
+                    match args.gz_compression {
+                        0 => { compression = Compression::none() }
+                        1 => { compression = Compression::fast() }
+                        _ => { compression = Compression::best() }
+                    }
+                    let enc = ZlibEncoder::new(tar_gz, compression);
+                    let mut archive = tar::Builder::new(enc);
                     for _ in 0..args.count {
                         let testdata = RandomTestData::new();
                         let json = serde_json::to_string(&testdata).unwrap();
