@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::{LineWriter, Write};
 use std::path::Path;
 use std::thread;
 use rand::Rng;
@@ -25,10 +26,12 @@ struct Args {
     ///Files per thread
     #[arg(short, long)]
     files_per_thread: usize,
+    ///Use raw blobs instead of tarballs
+    #[arg(short, long,default_value_t = true)]
+    blob: bool,
     ///GZ/Zlib compression, 2=best,1=fast,0=none
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t=2)]
     gz_compression: u8
-
 }
 
 static GLOBAL_THREAD_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
@@ -42,26 +45,11 @@ fn main() -> std::io::Result<()>{
             GLOBAL_THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
             thread::spawn(move ||{
                 for _ in 0..args.files_per_thread {
-                    let tar_gz = File::create(gen_filepath(path.clone())).unwrap();
-                    let compression: Compression;
-                    match args.gz_compression {
-                        0 => { compression = Compression::none() }
-                        1 => { compression = Compression::fast() }
-                        _ => { compression = Compression::best() }
+                    if args.blob {
+                        create_test_blob(path.clone(),args.count)
+                    }else{
+                        create_test_archive(path.clone(),args.gz_compression,args.count);
                     }
-                    let enc = ZlibEncoder::new(tar_gz, compression);
-                    let mut archive = tar::Builder::new(enc);
-                    for _ in 0..args.count {
-                        let testdata = RandomTestData::new();
-                        let json = serde_json::to_string(&testdata).unwrap();
-                        //println!("{}",json);
-                        let mut header = Header::new_gnu();
-                        header.set_path(testdata.get_string_uid()).unwrap();
-                        header.set_size(json.as_bytes().len() as u64);
-                        header.set_cksum();
-                        archive.append(&header, json.as_bytes()).unwrap();
-                    }
-                    archive.finish().unwrap();
                 }
                 GLOBAL_THREAD_COUNT.fetch_sub(1, Ordering::SeqCst);
             });
@@ -74,6 +62,41 @@ fn main() -> std::io::Result<()>{
     }
 
     Ok(())
+}
+
+fn create_test_archive(path:String,gz_compression: u8,object_count: u64) {
+    let file = File::create(gen_filepath(path)).unwrap();
+    let compression: Compression;
+    match gz_compression {
+        0 => { compression = Compression::none() }
+        1 => { compression = Compression::fast() }
+        _ => { compression = Compression::best() }
+    }
+    let encoder = ZlibEncoder::new(file, compression);
+    let mut archive = tar::Builder::new(encoder);
+    for _ in 0..object_count {
+        let testdata = RandomTestData::new();
+        let json = serde_json::to_string(&testdata).unwrap();
+        //println!("{}",json);
+        let mut header = Header::new_gnu();
+        header.set_path(testdata.get_string_uid()).unwrap();
+        header.set_size(json.as_bytes().len() as u64);
+        header.set_cksum();
+        archive.append(&header, json.as_bytes()).unwrap();
+    }
+    archive.finish().unwrap();
+}
+
+fn create_test_blob(path:String,object_count:u64) {
+    let file = File::create(gen_filepath(path)).unwrap();
+    let mut file = LineWriter::new(file);
+    for _ in 0..object_count{
+        let testdata = RandomTestData::new();
+        let json = serde_json::to_vec(&testdata).unwrap();
+        file.write_all(json.as_slice()).unwrap();
+        file.write_all(b"\n").unwrap();
+    }
+    file.flush().unwrap();
 }
 
 fn gen_filepath(path: String) -> String{
